@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+
+"""
+Azure Automation documentation : https://aka.ms/azure-automation-python-documentation
+Azure Python SDK documentation : https://aka.ms/azure-python-sdk
+"""
+"""
+Azure Automation documentation : https://aka.ms/azure-automation-python-documentation
+Azure Python SDK documentation : https://aka.ms/azure-python-sdk
+"""
+import azure.mgmt.resource
+import automationassets
+from msrestazure.azure_cloud import AZURE_PUBLIC_CLOUD
+
+def get_automation_runas_credential(runas_connection, resource_url, authority_url ):
+    """ Returns credentials to authenticate against Azure resoruce manager """
+    from OpenSSL import crypto
+    from msrestazure import azure_active_directory
+    import adal
+
+    # Get the Azure Automation RunAs service principal certificate
+    cert = automationassets.get_automation_certificate("AzureRunAsCertificate")
+    pks12_cert = crypto.load_pkcs12(cert)
+    pem_pkey = crypto.dump_privatekey(crypto.FILETYPE_PEM, pks12_cert.get_privatekey())
+
+    # Get run as connection information for the Azure Automation service principal
+    application_id = runas_connection["ApplicationId"]
+    thumbprint = runas_connection["CertificateThumbprint"]
+    tenant_id = runas_connection["TenantId"]
+
+    # Authenticate with service principal certificate
+    authority_full_url = (authority_url + '/' + tenant_id)
+    context = adal.AuthenticationContext(authority_full_url)
+    return azure_active_directory.AdalAuthentication(
+        lambda: context.acquire_token_with_client_certificate(
+            resource_url,
+            application_id,
+            pem_pkey,
+            thumbprint)
+    )
+
+
+# Authenticate to Azure using the Azure Automation RunAs service principal
+runas_connection = automationassets.get_automation_connection("AzureRunAsConnection")
+resource_url = AZURE_PUBLIC_CLOUD.endpoints.active_directory_resource_id
+authority_url = AZURE_PUBLIC_CLOUD.endpoints.active_directory
+resourceManager_url = AZURE_PUBLIC_CLOUD.endpoints.resource_manager
+azure_credential = get_automation_runas_credential(runas_connection, resource_url, authority_url)
+
+# Intialize the resource management client with the RunAs credential and subscription
+resource_client = azure.mgmt.resource.ResourceManagementClient(
+    azure_credential,
+    str(runas_connection["SubscriptionId"]),
+    base_url=resourceManager_url)
+
+# Get list of resource groups and print them out
+groups = resource_client.resource_groups.list()
+for group in groups:
+    print (group.name)
+
+
+#key-vault secret 
+import automationassets
+from azure.identity import ClientSecretCredential
+from azure.keyvault.secrets import SecretClient
+
+CLIENT_ID= automationassets.get_automation_variable("AZURE_CLIENT_ID")
+CLIENT_SECRET=automationassets.get_automation_variable("AZURE_CLIENT_SECRET")
+TENANT_ID=automationassets.get_automation_variable("AZURE_TENANT_ID")
+KEY_VAULT_NAME = automationassets.get_automation_variable("KEY_VAULT_NAME")
+KEY_VAULT_URI = "https://akstest003.vault.azure.net/"
+
+
+credential = ClientSecretCredential (
+	tenant_id =TENANT_ID,
+	client_id = CLIENT_ID,
+	client_secret = CLIENT_SECRET
+
+)
+
+secret_client = SecretClient(vault_url="https://akstest003.vault.azure.net/", credential=credential)
+   # list secrets
+secretcre = secret_client.set_secret("secret-name", "xyz")
+secrets = secret_client.get_secret("test").value
+print (secret_client.get_secret("secret-name").value)
+print(secrets)
+
+deleted_secret = secret_client.begin_delete_secret("secret-name").result()
+deleted_secret = secret_client.begin_delete_secret("test").result()
+
+
